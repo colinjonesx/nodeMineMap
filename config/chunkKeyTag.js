@@ -1,4 +1,4 @@
-module.exports = {
+export default {
     44:'ChunkVersion	A byte',
     45:'Data2D	Biomes and elevation',
     46:'Data2DLegacy',

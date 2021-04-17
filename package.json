@@ -1,0 +1,9 @@
+{
+  "type":"module",
+  "devDependencies": {
+    "eslint": "^7.24.0"
+  },
+  "dependencies": {
+    "leveldb-zlib": "^0.0.26"
+  }
+}

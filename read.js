@@ -2,89 +2,62 @@
  * Reference: https://minecraft.fandom.com/wiki/Bedrock_Edition_level_format
  */
 
-const process = require('process');
-const { LevelDB } = require('leveldb-zlib')
+import { exit } from 'process';
+import { LevelDB } from 'leveldb-zlib';
 const pathToDb = '/home/colinjones/projects/mmccoo/world/db1/'
 // const pathToDb = '/home/colinjones/projects/mmccoo/world/dbMini/db'
-
-const chunkKeyTag = require('./chunkKeyTag');
-
-const villageKeys = [
-    /VILLAGE_[0-9a-f\\-]+_DWELLERS/,
-    /VILLAGE_[0-9a-f\\-]+_INFO/,
-    /VILLAGE_[0-9a-f\\-]+_PLAYERS/,
-    /VILLAGE_[0-9a-f\\-]+_POI/,
-    /map_\\-[0-9]+/
-]
-
-const BLOCK_BLACKLIST = [
-    'minecraft:netherrack',
-    'minecraft:lava',
-    'minecraft:soul_soil',
-    'minecraft:soul_sand',
-    'minecraft:basalt',
-    'minecraft:nether_gold_ore',
-    'minecraft:quartz_ore',
-    'minecraft:magma',
-    'minecraft:blackstone',
-    'minecraft:stone',
-    'minecraft:gravel',
-    'minecraft:bedrock',
-    'minecraft:air',
-    'minecraft:water',
-    'minecraft:dirt',
-    'minecraft:grass',
-    'minecraft:sand',
-    'minecraft:sandstone'
-]
-const BLOCK_WHITELIST = [
-    'minecraft:ancient_debris'
-];
-
+import { parse_nbt_tag} from './utils/nbtParsing.js'
+import {villageKeys, BLOCK_WHITELIST, BLOCK_BLACKLIST} from './config/fliterLists.js';
+import './config/chunkKeyTag.js';
 
 function route_interesting(all_interesting, target_number, starting_location){
-    console.log(`Finding closest ${target_number} items`);
-     all_interesting.forEach(el => {
-         el.distance = Math.pow(
-             Math.pow(starting_location.x - el.x, 2) +
-             Math.pow(starting_location.y - el.y, 2) +
-             Math.pow(starting_location.z - el.z, 2),
-             -2);
+    
+    console.log(`Finding closest ${target_number} items from ${JSON.stringify(starting_location)}`);
+     all_interesting.forEach((el, i, orig) => {
+        orig[i].distance = 1*Math.pow(
+            Math.pow(starting_location.x - el.x, 2) +
+            Math.pow(starting_location.y - el.y, 2) +
+            Math.pow(starting_location.z - el.z, 2),
+            0.5);
+        // console.log(el.distance);
      })
 
-     all_interesting.sort((a, b)=> a.distance = b.distance);
+     all_interesting.sort((a, b)=> a.distance - b.distance);
 
-     for(let i=0; i<target_number; i++){
-         console.log(all_interesting[i]);
+     let short_list = all_interesting.slice(0, target_number);
+    //  console.log(short_list)
+     for(let i = 1; i< short_list.length; i++){
+        // console.log(Math.pow(Math.pow(starting_location.x - short_list[i].x, 2) +
+        //                     Math.pow(starting_location.y - short_list[i].y, 2) +
+        //                     Math.pow(starting_location.z - short_list[i].z, 2),
+        //                     0.5));
+         
+        // console.log(short_list[i-1].distance - short_list[i].distance);
      }
-
-
-
-
+     short_list.forEach(el =>{
+         console.log(`X:${el.x}\tY:${el.y}\tZ:${el.z}\t${el.block_name}\t${el.distance}`)
+     })
 }
 
 async function go(){
     let db = new LevelDB(pathToDb, { createIfMissing: false })
     await db.open()
-    // await db.put("Key", "Value")
-    // let val = await db.getAsString("Key")
-    // console.assert("Value" == val)
-    console.log( db.status)
-    console.log(await db.getProperty('leveldb.stats'))
+    
+    console.log(` ${db.status}`)
+    
+    // console.log(await db.getProperty('leveldb.stats'))
     // console.log('Approx Size', db.approximateSize())
     let count = 0
-    let total_blocks = 0;
+    
     let interesting_blocks = [];
     const it = db.getIterator({keys:true,values:true});
     
     while(!it.finished){
         count++;
-        // let record = await it.next()
         let [k, v] = await it.next();
         if(!k){
-            // Should not be...
-            process.exit()
-            continue;
+            console.error('Key not found');
+            process.exit(1);
         }
         let chunkx = k.length > 4 ? k.readInt32LE(0) : 0;
         let chunkz = k.length > 8 ? k.readInt32LE(4) : 0;
@@ -102,41 +75,35 @@ async function go(){
             console.log(k.toString())
         }else if ((k.length === 10) && (k[8] == 0x2f)) { // 2f = SubChunk
             chunky = k[9];
-            //parse_data_payload(v, chunkx, chunky, chunkz);
-        } else if ((k.length == 14) && (k[12] == 0x2f)) {
-            // i'm skipping nether and end for the moment.
+            // interesting_blocks = interesting_blocks.concat(parse_data_payload(v, chunkx, chunky, chunkz, 0));
             
+        } else if ((k.length == 14) && (k[12] == 0x2f)) {
             // neo is nether(1), end(2), overworld(omitted).
             // let neo = get_intval(k,8);
-            
+            let dim = k.readInt32LE(8);
             chunky = k[11];
-            interesting_blocks = interesting_blocks.concat(parse_data_payload(v, chunkx, chunky, chunkz));
-        } else if ((k.length == 13) && (k[12] == 0x2d)) {
+            interesting_blocks = interesting_blocks.concat(parse_data_payload(v, chunkx, chunky, chunkz, dim));
+        } else if ((k.length == 13) && (k[12] == 0x2d)) { // Biomes and elevation
             let neo = k.readInt32LE(8);
-
             // console.log(`biomes and elevation for " << ${chunkx} << ${chunky} << ${chunkz} << ", " << ${neo===1 ? "nether" : "end"}`);
-
             continue;
         }else if ((k.length == 9) && (k[8] == 0x2d)) {
             // console.log(`biomes and elevation for " << ${chunkx} << ${chunky} << ${chunkz} << ", " << overworld`);
         }else{
-            // if(k.length<9){
-            //     console.log('Smalllllll ', k.toString())//, v.toString());
-            // }else if(k.length > 14){
-            //     console.log('Bpiggggggg ', k.toString())//, v.toString());
-            // }
             //console.log(`${chunkx},${chunky},${chunkz} ${k[8]}`)
             // console.log(k.toString());
         }
-        //con}sole.log(record);
+        
     }
-    //console.log(`Interesting Block Count ${JSON.stringify(interesting_blocks)}`)
+    
     console.log(`Interesting Block Count ${interesting_blocks.length}`)
-    route_interesting(interesting_blocks, 10, {x:0,y:75,z:0});
+    route_interesting(interesting_blocks, 32, {x:115,y:12,z:90});
+    // route_interesting(interesting_blocks, 32, {x:31,y:11,z:-7});
+    // route_interesting(interesting_blocks, 32, {x:-167,y:10,z:47});
     return db.close()
 }
 
-function parse_data_payload(v, chunkx, chunky, chunkz, neo){
+function parse_data_payload(v, chunkx, chunky, chunkz, dim){
     const interesting_blocks = []
     const version = v[0]
     const num_storage_blocks = v[1]
@@ -164,8 +131,7 @@ function parse_data_payload(v, chunkx, chunky, chunkz, neo){
         paletteoffset += 4;
 
         // console.log(`PaletteSize:${psize}, PaletteOffset:${paletteoffset}`);
-
-        //std::vector<int> block_types;
+        let block_type;
         let block_types = []
         
         for(let i=0; i<psize; i++) {
@@ -174,21 +140,12 @@ function parse_data_payload(v, chunkx, chunky, chunkz, neo){
 
             if (blocknum>0) {
                 // block must be flowing water, etc
-                console.log('Block 2??!!?')
+                //console.log('Block 2??!!?')
                 //console.log("blocknum " , blocknum , block_type.get_name() , " " ,block_type.get_string(), "\n");
             }
 
             block_types.push(block_type)
-
-            //console.log('Palette Block Parsed', block_type, paletteoffset)
-
-            //process.exit();
-
-            // BlockType::add_block_type(block_type);
-            // int id = BlockType::get_block_type_id(block_type);
-            // block_types.push_back(id);
         }
-        // console.log(block_types)
 
         // this is important. there's usually only one block, but sometimes more.
         curoffset = paletteoffset;
@@ -201,7 +158,7 @@ function parse_data_payload(v, chunkx, chunky, chunkz, neo){
 
             if (block_val >= block_types.length) {
                 console.warn(`Block Value [${block_val}] out of palette bounds`);
-                process.exit()
+                process.exit(1);
             }
             //console.log('Block Value', block_val, v.slice())
 
@@ -247,71 +204,6 @@ function parse_data_payload(v, chunkx, chunky, chunkz, neo){
     }
     return interesting_blocks
 }
-
-function parse_nbt_tag(slice, offset, obj){
-    //console.log(offset, slice.slice(offset, offset+4, obj))
-    obj = obj || {};
-
-    let lOffset = parseInt( offset);
-    let id = slice[lOffset]
-    lOffset++;
-    // console.log(`[ID: ${id}]`)
-    if( typeof id === 'undefined' || id > 10){
-        console.warn(`Incorrect ID:${id}`)
-        process.exit();
-    }else{        
-        let len = (slice[lOffset]) | (slice[lOffset+1] << 8)
-        lOffset+=2
-        //console.log(slice[lOffset], (slice[lOffset+1]))
-        
-        // console.log('  **** ', slice.slice(lOffset))
-        // console.log('  **** ',  slice.slice(lOffset, lOffset + 40).toString())
-        // console.log('  ****')
-
-        let tagname = slice.slice(lOffset, lOffset + len).toString()
-        // console.log(`TagName: "${tagname}", length: ${len}`)
-        lOffset += len;
-        [obj, lOffset] = parse_nbt_payload(slice, lOffset, tagname, id, obj, ' ')
-    
-    }
-    
-    return  [obj, lOffset]
-}
-
-function parse_nbt_payload(slice, offset, tagname, id, obj, indent){
-    switch(id){
-        case 10: // compound type
-            //console.log(`Compound Type, Tagname: ${tagname}`)
-            while(slice[offset] != 0){ // zero being NBTTags-End type
-                [obj, offset] = parse_nbt_tag(slice, offset, obj)
-            }
-            //console.log('   ***** FOUND END TAG', obj)
-            offset++;
-            break;
-        case 8: // string
-            let stringLength = slice.readInt16LE(offset);
-            offset+=2
-            let stringValue = slice.slice(offset, offset+stringLength).toString();
-            //console.log(`String: ${tagname} "${stringValue}"`);
-            offset += stringLength;
-            obj[tagname] = stringValue;
-            break;
-        case 3: // Int
-            obj[tagname] = slice.readInt32LE(offset);
-            //console.log(`Integer: ${tagname},${obj[tagname]}`);
-            offset+=4;// TODO: figure why this is 5 not 4 as expected
-            break;
-        case 1: // byte
-            //console.log('BYTE')
-            obj[tagname] = slice[offset];
-            offset+=1;// TODO: figure why this is 2 not 1 as expected
-            break;
-        default:
-            console.log('UNHANDLED NBT Payload')
-    }
-    return [obj, offset]
-}
-
 
 go().then(complete=>{
     console.log('Complete', complete)
