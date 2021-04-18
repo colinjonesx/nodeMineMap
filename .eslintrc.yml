@@ -1,0 +1,14 @@
+env:
+  browser: true
+  es2021: true
+extends:
+  - airbnb-base
+parserOptions:
+  ecmaVersion: 12
+  sourceType: module
+rules:
+  'no-plusplus': [2, { allowForLoopAfterthoughts: true }]
+  'no-bitwise': off
+  'no-console': off
+  'no-param-reassign': [error, { props: false}]
+  'import/extensions': off
